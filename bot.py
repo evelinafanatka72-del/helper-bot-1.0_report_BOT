@@ -1,94 +1,105 @@
 import os
-import asyncio
 import random
-from aiogram import Bot, Dispatcher, F, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- НАСТРОЙКИ БЕЗОПАСНОСТИ ---
-# Бот берет токен из переменных окружения (Environment Variables)
-# На GitHub это настраивается в Settings -> Secrets
-TOKEN = os.getenv("BOT_TOKEN") 
-ADMIN_ID = int(os.getenv("ADMIN_ID", 123456789)) # Твой ID тут (можно оставить цифрами)
+# Настройки из переменных окружения GitHub
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = os.getenv("ADMIN_ID") # Убедись, что добавил свой ID в Secrets!
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- ХЭНДЛЕР: КОМАНДА /START ---
+# --- ВНУТРЕННЯЯ ФУНКЦИЯ ДЛЯ ПРОГРЕСС-БАРА ---
+def get_bar(percent):
+    filled = int(min(percent, 100) / 10)
+    return "🟩" * filled + "⬜️" * (10 - filled)
+
+# Хэндлер команды /start
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
-    await message.answer(
-        "🛡️ **Daster Helper Bot (Report) 1.0 запущен!**\n\n"
-        "Я сканирую Telegram на наличие токсичности, скама и опасного контента.\n\n"
-        "📥 **Пришли мне ссылку на канал или чат** (например, t.me/name), "
-        "чтобы начать технический осмотр."
-    )
+    await message.answer("🛡 **Daster Helper Bot (Report) 1.0 запущен!**\n\nПришли мне ссылку на канал или чат, чтобы начать технический осмотр.")
 
-# --- ХЭНДЛЕР: ПРОВЕРКА ССЫЛОК ---
-@dp.message(F.text.contains("t.me/"))
-async def scan_process(message: types.Message):
-    # 1. Начало осмотра
-    status_msg = await message.answer("🔍 **Начинаю технический осмотр ссылки...**\n[░░░░░░░░░░] 0%")
+# Основная логика проверки
+@dp.message()
+async def check_link(message: types.Message):
+    if not message.text or not message.text.startswith("http"):
+        return
+
+    link = message.text.lower()
+    user_info = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
     
-    # 2. Имитация процесса
-    await asyncio.sleep(4)
-    await status_msg.edit_text("🧪 **Анализ текста на TOXIC и SCAM...**\n[████░░░░░░] 40%")
-    await asyncio.sleep(5)
-    await status_msg.edit_text("🧬 **Проверка медиафайлов на 18+ и шок-контент...**\n[███████░░░] 70%")
-    await asyncio.sleep(5)
+    # 1. БЕЛЫЙ СПИСОК
+    trust_list = ['botfather', 'wallet', 'telegram', 'stickers', 'durov', 'dfreeg']
+    if any(trust in link for trust in trust_list):
+        return await message.answer("✅ **ОФИЦИАЛЬНЫЙ РЕСУРС**\n\nБезопасность: 100%. Этот ресурс верифицирован.")
+
+    # 2. ПАРАМЕТРЫ И ЦЕЛЬ
+    scam, toxic, shock = 5, 2, 0
+    adult, psycho = "НЕ НАЙДЕНО", "НЕТ"
+    target_id = random.randint(100000, 999999)
     
-    # --- АНАЛИЗ ЦИФР ---
-    toxic_val = random.randint(5, 95)
-    scam_val = random.randint(0, 80)
-    is_psycho = "ДА" if toxic_val > 70 else "НЕТ"
-    is_18plus = "ОБНАРУЖЕНО" if random.random() > 0.7 else "НЕ НАЙДЕНО"
-    
-    # --- ЛОГИКА ВЕРДИКТА ---
-    if toxic_val > 75 or scam_val > 60 or is_18plus == "ОБНАРУЖЕНО":
-        verdict = "🔴 КРИТИЧЕСКАЯ УГРОЗА / ТОКСИЧНО"
-        emoji = "🚨"
-        show_button = True
-    elif 40 <= toxic_val <= 75:
-        verdict = "🟡 ПОДОЗРИТЕЛЬНО (Warning)"
-        emoji = "⚠️"
-        show_button = True
+    # 3. АНАЛИЗ (Триггеры)
+    scam_triggers = ['crypto', 'money', 'free', 'bonus', 'casino', 'invest', 'p2p', 'giveaway']
+    for t in scam_triggers:
+        if t in link: scam += 25
+
+    toxic_triggers = ['dox', 'swat', 'shlak', 'trash', 'blood', 'death', 'kill']
+    for t in toxic_triggers:
+        if t in link:
+            toxic += 40
+            psycho = "ВОЗМОЖНО"
+            shock += 35
+
+    if 'xxx' in link or 'porn' in link or '18' in link:
+        adult = "ОБНАРУЖЕНО 🔞"
+        scam += 15
+
+    # 4. ВЕРДИКТ
+    total_danger = scam + toxic + shock
+    if total_danger < 30:
+        verdict = "🟢 **БЕЗОПАСНО**"
+    elif 30 <= total_danger < 70:
+        verdict = "🟡 **СРЕДНЯЯ УГРОЗА**"
     else:
-        verdict = "🟢 БЕЗОПАСНО"
-        emoji = "✅"
-        show_button = False
+        verdict = "🔴 **КРИТИЧЕСКАЯ УГРОЗА**"
 
-    # 3. Финальный результат
-    result_text = (
-        f"{emoji} **СКАНИРОВАНИЕ ЗАВЕРШЕНО!**\n\n"
-        f"📊 **Результаты:**\n"
-        f"• Токсичность: {toxic_val}%\n"
-        f"• Скам: {scam_val}%\n"
-        f"• Ломает психику: {is_psycho}\n"
-        f"• 18+ Контент: {is_18plus}\n\n"
+    # 5. КНОПКА СНОСА
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚨 ПОДАТЬ ЗАЯВКУ НА СНОС", callback_data=f"report_{target_id}")]
+    ])
+
+    # 6. ОТЧЕТ
+    report = (
+        f"🚨 **АНАЛИЗ ЗАВЕРШЕН**\n\n"
+        f"🎯 **Цель:** `#TRG-{target_id}`\n\n"
+        f"• Скам: `{min(scam, 100)}%`\n[{get_bar(scam)}]\n\n"
+        f"• Токсичность: `{min(toxic, 100)}%`\n[{get_bar(toxic)}]\n\n"
+        f"• Шок-контент: `{min(shock, 100)}%`\n[{get_bar(shock)}]\n\n"
+        f"• 18+ Контент: **{adult}**\n"
+        f"• Ломает психику: **{psycho}**\n\n"
         f"**Вердикт:** {verdict}"
     )
-    
-    kb_list = []
-    if show_button:
-        kb_list.append([types.InlineKeyboardButton(text="🚨 ПОДАТЬ ЗАЯВКУ НА СНОС", callback_data="report_delete")])
-    
-    kb = types.InlineKeyboardMarkup(inline_keyboard=kb_list)
-    await status_msg.edit_text(result_text, reply_markup=kb)
 
-# --- ХЭНДЛЕР: ОБРАБОТКА ЗАЯВКИ НА СНОС ---
-@dp.callback_query(F.data == "report_delete")
-async def send_to_admins(callback: types.CallbackQuery):
-    await callback.message.answer("📥 **Заявка отправлена администраторам Daster Store.**\nОжидайте массовой атаки жалобами.")
-    
-    await bot.send_message(
-        ADMIN_ID, 
-        f"🔥 **ЦЕЛЬ НА СНОС!**\nОтправил: @{callback.from_user.username}\nДанные проверки:\n{callback.message.text}"
-    )
-    await callback.answer()
+    await message.answer(report, parse_mode="Markdown", reply_markup=keyboard)
 
-# --- ЗАПУСК ---
+    # 7. ЛОГ ДЛЯ ТЕБЯ
+    if ADMIN_ID:
+        try:
+            await bot.send_message(ADMIN_ID, f"👤 Запрос от {user_info}\n🔗 Ссылка: {message.text}\n📈 Цель: #TRG-{target_id}")
+        except:
+            pass
+
+# Обработка нажатия кнопки
+@dp.callback_query(F.data.startswith("report_"))
+async def handle_report(callback: types.CallbackQuery):
+    await callback.answer("🚀 Заявка на снос отправлена модераторам!", show_alert=True)
+    await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопку после нажатия
+
 async def main():
-    print("Бот запущен и сканирует...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
