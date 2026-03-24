@@ -76,7 +76,7 @@ async def scan_process(message: types.Message):
 
 # --- ХЭНДЛЕР: ОБРАБОТКА ЗАЯВКИ НА СНОС ---
 @dp.callback_query(F.data == "report_delete")
-async def send_to_admins(callback: types.Callback_query):
+async def send_to_admins(callback: types.CallbackQuery):
     await callback.message.answer("📥 **Заявка отправлена администраторам Daster Store.**\nОжидайте массовой атаки жалобами.")
     
     await bot.send_message(
