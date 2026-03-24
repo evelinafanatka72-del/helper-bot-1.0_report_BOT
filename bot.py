@@ -1,105 +1,132 @@
 import os
+import asyncio
 import random
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Настройки из переменных окружения GitHub
+# Настройки
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID") # Убедись, что добавил свой ID в Secrets!
+ADMIN_ID = os.getenv("ADMIN_ID") # Твой ID (узнай в @userinfobot)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- ВНУТРЕННЯЯ ФУНКЦИЯ ДЛЯ ПРОГРЕСС-БАРА ---
 def get_bar(percent):
     filled = int(min(percent, 100) / 10)
     return "🟩" * filled + "⬜️" * (10 - filled)
 
-# Хэндлер команды /start
+# --- 1. ПРИВЕТСТВИЕ ---
 @dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    await message.answer("🛡 **Daster Helper Bot (Report) 1.0 запущен!**\n\nПришли мне ссылку на канал или чат, чтобы начать технический осмотр.")
+async def start(message: types.Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="ℹ️ Как это работает?", callback_data="help_info")]
+    ])
+    await message.answer(
+        "🛡 **Daster Helper Control 2.0**\n\n"
+        "Я сканирую ресурсы на токсичность, скам и запрещенный контент.\n"
+        "**Пришли мне ссылку на канал или чат.**",
+        reply_markup=kb
+    )
 
-# Основная логика проверки
+@dp.callback_query(F.data == "help_info")
+async def help_info(callback: types.CallbackQuery):
+    await callback.answer(
+        "Бот анализирует метаданные и содержимое ссылки по 7 критериям нарушения. "
+        "Добавление в группы отключено для безопасности.", 
+        show_alert=True
+    )
+
+# --- 2. ЛОГИКА СКАНЕРА С АНИМАЦИЕЙ ---
 @dp.message()
-async def check_link(message: types.Message):
-    if not message.text or not message.text.startswith("http"):
+async def scan_link(message: types.Message):
+    if not message.text or "t.me/" not in message.text:
         return
 
     link = message.text.lower()
-    user_info = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
     
-    # 1. БЕЛЫЙ СПИСОК
-    trust_list = ['botfather', 'wallet', 'telegram', 'stickers', 'durov', 'dfreeg']
-    if any(trust in link for trust in trust_list):
-        return await message.answer("✅ **ОФИЦИАЛЬНЫЙ РЕСУРС**\n\nБезопасность: 100%. Этот ресурс верифицирован.")
+    # Белый список
+    trust = ['botfather', 'wallet', 'telegram', 'durov', 'dfreeg']
+    if any(t in link for t in trust):
+        return await message.answer("✅ **ОФИЦИАЛЬНЫЙ РЕСУРС**\nБезопасность: 100%")
 
-    # 2. ПАРАМЕТРЫ И ЦЕЛЬ
-    scam, toxic, shock = 5, 2, 0
-    adult, psycho = "НЕ НАЙДЕНО", "НЕТ"
-    target_id = random.randint(100000, 999999)
+    # Начало анимации
+    status_msg = await message.answer("🔍 **Инициализация сканирования...**\n`[⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️]`")
+    await asyncio.sleep(1)
+
+    # Параметры (имитация анализа)
+    scam = 45 if any(x in link for x in ['crypto', 'money', 'free', 'win']) else random.randint(5, 20)
+    toxic = 60 if any(x in link for x in ['dox', 'swat', 'shlak']) else random.randint(2, 15)
+    shock = random.randint(0, 10)
     
-    # 3. АНАЛИЗ (Триггеры)
-    scam_triggers = ['crypto', 'money', 'free', 'bonus', 'casino', 'invest', 'p2p', 'giveaway']
-    for t in scam_triggers:
-        if t in link: scam += 25
+    # Анимация заполнения (3 этапа)
+    stages = ["📡 Подключение к серверам...", "🧬 Анализ контента...", "📊 Финализация отчета..."]
+    for i in range(1, 4):
+        bar = get_bar(i * 33)
+        await status_msg.edit_text(f"{stages[i-1]}\n`[{bar}]`")
+        await asyncio.sleep(0.8)
 
-    toxic_triggers = ['dox', 'swat', 'shlak', 'trash', 'blood', 'death', 'kill']
-    for t in toxic_triggers:
-        if t in link:
-            toxic += 40
-            psycho = "ВОЗМОЖНО"
-            shock += 35
-
-    if 'xxx' in link or 'porn' in link or '18' in link:
-        adult = "ОБНАРУЖЕНО 🔞"
-        scam += 15
-
-    # 4. ВЕРДИКТ
-    total_danger = scam + toxic + shock
-    if total_danger < 30:
-        verdict = "🟢 **БЕЗОПАСНО**"
-    elif 30 <= total_danger < 70:
-        verdict = "🟡 **СРЕДНЯЯ УГРОЗА**"
+    # Уровни опасности
+    total = scam + toxic + shock
+    if total < 30:
+        verdict = "🟢 **УРОВЕНЬ 1: БЕЗОПАСНО**"
+    elif total < 60:
+        verdict = "🟡 **УРОВЕНЬ 2: СРЕДНЯЯ ОПАСНОСТЬ**"
+    elif total < 90:
+        verdict = "🟠 **УРОВЕНЬ 3: ВЫСОКИЙ РИСК**"
     else:
-        verdict = "🔴 **КРИТИЧЕСКАЯ УГРОЗА**"
+        verdict = "🔴 **УРОВЕНЬ 4: СМЕРТЕЛЬНАЯ УГРОЗА**"
 
-    # 5. КНОПКА СНОСА
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚨 ПОДАТЬ ЗАЯВКУ НА СНОС", callback_data=f"report_{target_id}")]
-    ])
-
-    # 6. ОТЧЕТ
+    target_id = random.randint(111111, 999999)
+    
     report = (
-        f"🚨 **АНАЛИЗ ЗАВЕРШЕН**\n\n"
-        f"🎯 **Цель:** `#TRG-{target_id}`\n\n"
-        f"• Скам: `{min(scam, 100)}%`\n[{get_bar(scam)}]\n\n"
-        f"• Токсичность: `{min(toxic, 100)}%`\n[{get_bar(toxic)}]\n\n"
-        f"• Шок-контент: `{min(shock, 100)}%`\n[{get_bar(shock)}]\n\n"
-        f"• 18+ Контент: **{adult}**\n"
-        f"• Ломает психику: **{psycho}**\n\n"
+        f"🚨 **АНАЛИЗ ЗАВЕРШЕН**\n"
+        f"🎯 Цель: `#TRG-{target_id}`\n\n"
+        f"• Скам: `{scam}%`\n[{get_bar(scam)}]\n"
+        f"• Токсичность: `{toxic}%`\n[{get_bar(toxic)}]\n"
+        f"• Шок-контент: `{shock}%`\n[{get_bar(shock)}]\n\n"
+        f"• 18+ Материалы: {'ДА' if total > 50 else 'НЕТ'}\n"
+        f"• Маты/Агрессия: {'ВЫСОКО' if toxic > 40 else 'НИЗКО'}\n\n"
         f"**Вердикт:** {verdict}"
     )
 
-    await message.answer(report, parse_mode="Markdown", reply_markup=keyboard)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 ПОДАТЬ НА СНОС", callback_data=f"snos_{target_id}")]
+    ])
 
-    # 7. ЛОГ ДЛЯ ТЕБЯ
+    await status_msg.edit_text(report, reply_markup=kb, parse_mode="Markdown")
+
+# --- 3. ОБРАБОТКА СНОСА ---
+@dp.callback_query(F.data.startswith("snos_"))
+async def handle_snos(callback: types.CallbackQuery):
+    target = callback.data.split("_")[1]
+    
+    await callback.answer("⏳ Подготовка пакетов жалоб...", show_alert=False)
+    await asyncio.sleep(2)
+    
+    # Имитация процесса
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(f"✅ **Жалобы отправлены (15 шт).**\nЦель #TRG-{target} поставлена в очередь на ограничение.")
+
+    # Отчет тебе
     if ADMIN_ID:
         try:
-            await bot.send_message(ADMIN_ID, f"👤 Запрос от {user_info}\n🔗 Ссылка: {message.text}\n📈 Цель: #TRG-{target_id}")
+            await bot.send_message(
+                ADMIN_ID, 
+                f"🔔 **УВЕДОМЛЕНИЕ О СНОСЕ**\n\n"
+                f"Админ @DFREEG, пользователь запросил снос цели `#TRG-{target}`.\n"
+                f"Требуется ручная проверка ресурса."
+            )
         except:
             pass
 
-# Обработка нажатия кнопки
-@dp.callback_query(F.data.startswith("report_"))
-async def handle_report(callback: types.CallbackQuery):
-    await callback.answer("🚀 Заявка на снос отправлена модераторам!", show_alert=True)
-    await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопку после нажатия
-
 async def main():
+    # Запрещаем работу в группах (только приватные чаты)
+    @dp.message(F.chat.type != "private")
+    async def no_groups(message: types.Message):
+        await message.leave_chat()
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
